@@ -198,7 +198,6 @@ describe('Middleware Runtime', () => {
           expect(textb).toEqual('AboutB')
         } finally {
           fs.writeFileSync(middlewarePath, originalContent)
-          await browser.close()
         }
       })
 

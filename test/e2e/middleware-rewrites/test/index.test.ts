@@ -700,13 +700,9 @@ describe('Middleware Rewrite', () => {
       const bucket = getCookieFromResponse(res, 'bucket')
       const expectedText = bucket === 'a' ? 'Welcome Page A' : 'Welcome Page B'
       const browser = await webdriver(next.url, `${locale}/rewrite-to-ab-test`)
-      try {
-        expect(await browser.eval(`window.location.pathname`)).toBe(
-          `${locale}/rewrite-to-ab-test`
-        )
-      } finally {
-        await browser.close()
-      }
+      expect(await browser.eval(`window.location.pathname`)).toBe(
+        `${locale}/rewrite-to-ab-test`
+      )
       // -1 is returned if bucket was not found in func getCookieFromResponse
       expect(bucket).not.toBe(-1)
       expect($('.title').text()).toBe(expectedText)
@@ -731,13 +727,9 @@ describe('Middleware Rewrite', () => {
       const html = await res.text()
       const $ = cheerio.load(html)
       const browser = await webdriver(next.url, `${locale}/rewrite-me-to-about`)
-      try {
-        expect(await browser.eval(`window.location.pathname`)).toBe(
-          `${locale}/rewrite-me-to-about`
-        )
-      } finally {
-        await browser.close()
-      }
+      expect(await browser.eval(`window.location.pathname`)).toBe(
+        `${locale}/rewrite-me-to-about`
+      )
       expect($('.title').text()).toBe('About Page')
     })
 
@@ -748,11 +740,7 @@ describe('Middleware Rewrite', () => {
       const $ = cheerio.load(html)
       expect($('#props').text()).toBe('not:param')
       const browser = await webdriver(next.url, path)
-      try {
-        expect(await browser.eval(`window.location.pathname`)).toBe(path)
-      } finally {
-        await browser.close()
-      }
+      expect(await browser.eval(`window.location.pathname`)).toBe(path)
     })
 
     it(`${label}can rewrite to path with colon`, async () => {
@@ -762,11 +750,7 @@ describe('Middleware Rewrite', () => {
       const $ = cheerio.load(html)
       expect($('#props').text()).toBe('with:colon')
       const browser = await webdriver(next.url, path)
-      try {
-        expect(await browser.eval(`window.location.pathname`)).toBe(path)
-      } finally {
-        await browser.close()
-      }
+      expect(await browser.eval(`window.location.pathname`)).toBe(path)
     })
 
     it(`${label}can rewrite from path with colon`, async () => {
@@ -776,11 +760,7 @@ describe('Middleware Rewrite', () => {
       const $ = cheerio.load(html)
       expect($('#props').text()).toBe('no-colon-here')
       const browser = await webdriver(next.url, path)
-      try {
-        expect(await browser.eval(`window.location.pathname`)).toBe(path)
-      } finally {
-        await browser.close()
-      }
+      expect(await browser.eval(`window.location.pathname`)).toBe(path)
     })
 
     it(`${label}can rewrite from path with colon and retain query parameter`, async () => {
@@ -791,15 +771,11 @@ describe('Middleware Rewrite', () => {
       expect($('#props').text()).toBe('no-colon-here')
       expect($('#qp').text()).toBe('arg')
       const browser = await webdriver(next.url, path)
-      try {
-        expect(
-          await browser.eval(
-            `window.location.href.replace(window.location.origin, '')`
-          )
-        ).toBe(path)
-      } finally {
-        await browser.close()
-      }
+      expect(
+        await browser.eval(
+          `window.location.href.replace(window.location.origin, '')`
+        )
+      ).toBe(path)
     })
 
     it(`${label}can rewrite to path with colon and retain query parameter`, async () => {
@@ -810,15 +786,11 @@ describe('Middleware Rewrite', () => {
       expect($('#props').text()).toBe('with:colon')
       expect($('#qp').text()).toBe('arg')
       const browser = await webdriver(next.url, path)
-      try {
-        expect(
-          await browser.eval(
-            `window.location.href.replace(window.location.origin, '')`
-          )
-        ).toBe(path)
-      } finally {
-        await browser.close()
-      }
+      expect(
+        await browser.eval(
+          `window.location.href.replace(window.location.origin, '')`
+        )
+      ).toBe(path)
     })
 
     if (!(global as any).isNextDeploy) {
