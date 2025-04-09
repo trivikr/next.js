@@ -165,7 +165,17 @@ export class Playwright extends BrowserInterface {
       if (contextHasJSEnabled !== javaScriptEnabled) {
         // If we have switched from having JS enable/disabled we need to recreate the context.
         await teardown(this.teardownTracing.bind(this))
-        await context.close() // TODO: does this also hang forever, like the one in quit()?
+
+        const maxContextCloseDuration = 10_000
+        await withTimeout(() => context.close(), {
+          duration: maxContextCloseDuration,
+          onTimeout() {
+            throw new Error(
+              `context.close() took longer than ${maxContextCloseDuration}ms to execute`
+            )
+          },
+        })
+
         context = await browser.newContext({
           locale,
           javaScriptEnabled,
@@ -636,6 +646,31 @@ export class Playwright extends BrowserInterface {
     this.assertReady()
     return page.locator('nextjs-portal [data-nextjs-dev-tools-button]')
   }
+}
+
+function withTimeout<T>(
+  callback: () => Promise<T>,
+  options: {
+    onTimeout: () => never
+    duration: number
+  }
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout>
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      try {
+        options.onTimeout()
+      } catch (err) {
+        reject(err)
+      }
+    }, options.duration)
+  })
+  const promise = callback()
+  promise.finally(() => {
+    clearTimeout(timeout)
+  })
+  return Promise.race([promise, timeoutPromise])
 }
 
 let currentId = 0
