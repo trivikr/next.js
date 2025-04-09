@@ -151,7 +151,19 @@ export class Playwright extends BrowserInterface {
           ...device,
         })
         contextHasJSEnabled = javaScriptEnabled
+      } else {
+        // Clean up the existing browser context as best we can.
+        // TODO: can we just recreate a fresh browser context for each test? that would be ideal
+        // TODO: trigger this from afterEach, not when running the next test!!!!! smh
+        await Promise.all([
+          context.removeAllListeners(undefined, { behavior: 'wait' }),
+          context.unrouteAll({ behavior: 'wait' }),
+          context.clearCookies(),
+          context.clearPermissions(),
+          // existing pages are cleaned up in `loadPage`
+        ])
       }
+
       return
     }
 
@@ -167,7 +179,13 @@ export class Playwright extends BrowserInterface {
 
   async close(): Promise<void> {
     await teardown(this.teardownTracing.bind(this))
-    await page?.close()
+    // clean-up existing pages
+    // TODO: trigger this from afterEach, not when running the next test!!!!! smh
+    const pages = context.pages()
+    if (page) {
+      pages.unshift(page)
+    }
+    await Promise.all(pages.map((oldPage) => this.closePage(oldPage)))
   }
 
   async launchBrowser(browserName: string, launchOptions: Record<string, any>) {
@@ -208,12 +226,8 @@ export class Playwright extends BrowserInterface {
       beforePageLoad?: (...args: any[]) => void
     }
   ) {
+    // TODO: trigger this from afterEach, not when running the next test!!!!! smh
     await this.close()
-
-    // clean-up existing pages
-    for (const oldPage of context.pages()) {
-      await oldPage.close()
-    }
 
     await this.initContextTracing(url, context)
     page = await context.newPage()
@@ -290,6 +304,17 @@ export class Playwright extends BrowserInterface {
     opts?.beforePageLoad?.(page)
 
     await page.goto(url, { waitUntil: 'load' })
+  }
+
+  private async closePage(targetPage: Page) {
+    if (targetPage.isClosed) {
+      return
+    }
+    await Promise.all([
+      targetPage.removeAllListeners(undefined, { behavior: 'wait' }),
+      targetPage.unrouteAll({ behavior: 'wait' }),
+    ])
+    await targetPage.close()
   }
 
   back(options) {
