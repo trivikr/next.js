@@ -118,8 +118,6 @@ export default async function webdriver(
   url: string,
   options?: WebdriverOptions
 ): Promise<BrowserInterface> {
-  let CurrentInterface: new () => BrowserInterface
-
   const defaultOptions = {
     waitHydration: true,
     retryWaitHydration: false,
@@ -140,10 +138,9 @@ export default async function webdriver(
   } = options
 
   const { Playwright, quit } = await import('./browsers/playwright')
-  CurrentInterface = Playwright
   browserQuit = quit
 
-  const browser = new CurrentInterface()
+  const browser = new Playwright()
   const browserName = process.env.BROWSER_NAME || 'chrome'
   await browser.setup(
     browserName,
@@ -172,7 +169,11 @@ export default async function webdriver(
   console.log(`\n> Loaded browser with ${fullUrl}\n`)
 
   // TODO: warn if called multiple times within one test and execute cleanup before creating the next instance
-  scheduleAfterCurrentTest(browser.close.bind(browser))
+  scheduleAfterCurrentTest(async () => {
+    if (browser.state !== 'closed') {
+      await browser.close()
+    }
+  })
 
   // Wait for application to hydrate
   if (waitHydration && !disableJavaScript) {
