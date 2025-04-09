@@ -26,15 +26,45 @@ if (isBrowserStack) {
   }
 }
 
-let browserTeardown: (() => Promise<void>)[] = []
+function createScheduleAfterCurrentTest() {
+  const afterCurrentTestCallbacks = new Set<() => Promise<void>>()
+
+  let isInJest = false
+  if (typeof afterEach !== 'function') {
+    isInJest = false
+  } else {
+    afterEach(async () => {
+      for (const callback of afterCurrentTestCallbacks) {
+        await callback()
+      }
+      afterCurrentTestCallbacks.clear()
+    })
+    isInJest = true
+  }
+
+  return function scheduleAfterCurrentTest(cb: () => void | Promise<void>) {
+    if (!isInJest) {
+      console.error('afterEach is not available')
+      return
+    }
+
+    const wrapped = async () => {
+      try {
+        await cb()
+      } finally {
+        afterCurrentTestCallbacks.delete(wrapped)
+      }
+    }
+    afterCurrentTestCallbacks.add(wrapped)
+  }
+}
+
+const scheduleAfterCurrentTest = createScheduleAfterCurrentTest()
+
 let browserQuit: (() => Promise<void>) | undefined
 
 if (typeof afterAll === 'function') {
   afterAll(async () => {
-    await Promise.all(browserTeardown.map((f) => f())).catch((e) =>
-      console.error('browser teardown', e)
-    )
-
     if (browserQuit) {
       await browserQuit()
     }
@@ -141,7 +171,8 @@ export default async function webdriver(
   })
   console.log(`\n> Loaded browser with ${fullUrl}\n`)
 
-  browserTeardown.push(browser.close.bind(browser))
+  // TODO: warn if called multiple times within one test and execute cleanup before creating the next instance
+  scheduleAfterCurrentTest(browser.close.bind(browser))
 
   // Wait for application to hydrate
   if (waitHydration && !disableJavaScript) {

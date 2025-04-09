@@ -36,9 +36,10 @@ const defaultTimeout = process.env.NEXT_E2E_TEST_TIMEOUT
 // [TODO] global `quit` might need to be removed, instead should introduce per-instance teardown
 const pendingTeardowns = new Set<Promise<void>>()
 export async function quit() {
-  await Promise.all(pendingTeardowns)
-  await context?.close()
-  await browser?.close()
+  await trace('quit :: pending teardowns', () => Promise.all(pendingTeardowns))
+  // TODO: for some reason, this seems to hang forever
+  // await trace('quit :: context.close', () => context?.close())
+  await trace('quit :: browser.close', () => browser?.close())
   context = undefined
   browser = undefined
 }
@@ -56,6 +57,7 @@ interface ElementHandleExt extends ElementHandle {
 }
 
 export class Playwright extends BrowserInterface {
+  state: 'uninitialized' | 'ready' | 'closing' | 'closed'
   private activeTrace?: string
   private async initContextTracing(url: string, context: BrowserContext) {
     if (!tracePlaywright) {
@@ -104,6 +106,7 @@ export class Playwright extends BrowserInterface {
   }
 
   on(event: Event, cb: (...args: any[]) => void) {
+    this.assertReady()
     context.on(
       // @ts-expect-error `context.on` is an overloaded function https://github.com/microsoft/TypeScript/issues/14107
       event,
@@ -112,6 +115,7 @@ export class Playwright extends BrowserInterface {
   }
 
   off(event: Event, cb: (...args: any[]) => void) {
+    this.assertReady()
     context.off(
       // @ts-expect-error `context.on` is an overloaded function https://github.com/microsoft/TypeScript/issues/14107
       event,
@@ -126,6 +130,16 @@ export class Playwright extends BrowserInterface {
     ignoreHTTPSErrors: boolean,
     headless: boolean
   ) {
+    if (this.state === 'ready') {
+      console.warn(
+        'Calling Playwright.setup() multiple times in a single test is not recommended.'
+      )
+      await this.close()
+    } else if (this.state === 'closing') {
+      throw new Error('Cannot set up Playwright while closing')
+    }
+
+    this.state = 'ready' // not really, but close enough
     let device
 
     if (process.env.DEVICE_NAME) {
@@ -139,10 +153,19 @@ export class Playwright extends BrowserInterface {
     }
 
     if (browser) {
+      console.warn(
+        'Calling next.browser() multiple times in a single test is not recommended.'
+      )
+    }
+
+    if (context) {
+      if (!browser) {
+        throw new Error('Expected to have a browser')
+      }
       if (contextHasJSEnabled !== javaScriptEnabled) {
         // If we have switched from having JS enable/disabled we need to recreate the context.
         await teardown(this.teardownTracing.bind(this))
-        await context?.close()
+        await context.close() // TODO: does this also hang forever, like the one in quit()?
         context = await browser.newContext({
           locale,
           javaScriptEnabled,
@@ -151,16 +174,8 @@ export class Playwright extends BrowserInterface {
         })
         contextHasJSEnabled = javaScriptEnabled
       } else {
-        // Clean up the existing browser context as best we can.
+        // we already clean up the context after each test.
         // TODO: can we just recreate a fresh browser context for each test? that would be ideal
-        // TODO: trigger this from afterEach, not when running the next test!!!!! smh
-        await Promise.all([
-          context.removeAllListeners(undefined, { behavior: 'wait' }),
-          context.unrouteAll({ behavior: 'wait' }),
-          context.clearCookies(),
-          context.clearPermissions(),
-          // existing pages are cleaned up in `loadPage`
-        ])
       }
 
       return
@@ -177,14 +192,51 @@ export class Playwright extends BrowserInterface {
   }
 
   async close(): Promise<void> {
+    if (this.state === 'uninitialized') {
+      // Somehow, we got closed before we were initialized.
+      return
+    }
+    if (this.state === 'closing' || this.state === 'closed') {
+      console.error('Playwright is already ' + this.state)
+      return
+    }
+    this.state = 'closing'
+    await this.cleanupPages()
+    await this.partiallyResetBrowserContext(context)
+    this.state = 'closed'
+  }
+
+  private async partiallyResetBrowserContext(context: BrowserContext) {
+    // Clean up the existing browser context as best we can.
+    await Promise.all([
+      context.removeAllListeners(undefined, { behavior: 'wait' }),
+      context.unrouteAll({ behavior: 'wait' }),
+      context.clearCookies(),
+      context.clearPermissions(),
+      // existing pages are cleaned up in `loadPage`
+    ])
+  }
+
+  async cleanupPages() {
     await teardown(this.teardownTracing.bind(this))
     // clean-up existing pages
-    // TODO: trigger this from afterEach, not when running the next test!!!!! smh
     const pages = context.pages()
-    if (page) {
+    if (page && !pages.includes(page)) {
       pages.unshift(page)
     }
-    await Promise.all(pages.map((oldPage) => this.closePage(oldPage)))
+    await trace(`closing pages (${pages.length})`, () =>
+      Promise.all(pages.map((oldPage) => this.closePage(oldPage)))
+    )
+    page = undefined
+  }
+
+  private assertReady() {
+    if (this.state !== 'ready') {
+      throw new Error('Cannot call method while playwright is ' + this.state)
+    }
+    if (!page) {
+      throw new Error('Invariant: page is unset despite being in a ready state')
+    }
   }
 
   async launchBrowser(browserName: string, launchOptions: Record<string, any>) {
@@ -213,6 +265,7 @@ export class Playwright extends BrowserInterface {
   }
 
   async get(url: string): Promise<void> {
+    this.assertReady()
     await page.goto(url)
   }
 
@@ -225,8 +278,9 @@ export class Playwright extends BrowserInterface {
       beforePageLoad?: (...args: any[]) => void
     }
   ) {
-    // TODO: trigger this from afterEach, not when running the next test!!!!! smh
-    await this.close()
+    // we call this between test, so it shouldn't be necessary,
+    // but a single test can call loadPage() twice, so we still need to do it here.
+    await this.cleanupPages()
 
     await this.initContextTracing(url, context)
     page = await context.newPage()
@@ -303,32 +357,42 @@ export class Playwright extends BrowserInterface {
     if (targetPage.isClosed) {
       return
     }
+
     await Promise.all([
-      targetPage.removeAllListeners(undefined, { behavior: 'wait' }),
-      targetPage.unrouteAll({ behavior: 'wait' }),
+      trace(`[${page.url()}] Page.removeAllListeners`, () =>
+        targetPage.removeAllListeners(undefined, { behavior: 'wait' })
+      ),
+      trace(`[${page.url()}] Page.unrouteAll`, () =>
+        targetPage.unrouteAll({ behavior: 'wait' })
+      ),
     ])
-    await targetPage.close()
+    await trace(`[${page.url()}] Page.close`, () => targetPage.close())
   }
 
   back(options) {
+    this.assertReady()
     return this.chain(async () => {
       await page.goBack(options)
     })
   }
   forward(options) {
+    this.assertReady()
     return this.chain(async () => {
       await page.goForward(options)
     })
   }
   refresh() {
+    this.assertReady()
     return this.chain(async () => {
       await page.reload()
     })
   }
   setDimensions({ width, height }: { height: number; width: number }) {
+    this.assertReady()
     return this.chain(() => page.setViewportSize({ width, height }))
   }
   addCookie(opts: { name: string; value: string }) {
+    this.assertReady()
     return this.chain(async () =>
       context.addCookies([
         {
@@ -340,14 +404,17 @@ export class Playwright extends BrowserInterface {
     )
   }
   deleteCookies() {
+    this.assertReady()
     return this.chain(async () => context.clearCookies())
   }
 
   focusPage() {
+    this.assertReady()
     return this.chain(() => page.bringToFront())
   }
 
   private wrapElement(el: ElementHandle, selector: string): ElementHandleExt {
+    this.assertReady()
     function getComputedCss(prop: string) {
       return page.evaluate(
         function (args) {
@@ -366,70 +433,84 @@ export class Playwright extends BrowserInterface {
   }
 
   elementByCss(selector: string) {
+    this.assertReady()
     return this.waitForElementByCss(selector)
   }
 
   elementById(sel) {
+    this.assertReady()
     return this.elementByCss(`#${sel}`)
   }
 
   getValue() {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => el.inputValue())
   }
 
   text() {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => el.innerText())
   }
 
   type(text) {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => el.type(text))
   }
 
   moveTo() {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => {
       return el.hover().then(() => el)
     })
   }
 
   async getComputedCss(prop: string) {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => {
       return el.getComputedCss(prop)
     }) as any
   }
 
   async getAttribute(attr) {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => el.getAttribute(attr))
   }
 
   hasElementByCssSelector(selector: string) {
+    this.assertReady()
     return this.eval<boolean>(`!!document.querySelector('${selector}')`)
   }
 
   keydown(key: string) {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => {
       return page.keyboard.down(key).then(() => el)
     })
   }
 
   keyup(key: string) {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => {
       return page.keyboard.up(key).then(() => el)
     })
   }
 
   click() {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => {
       return el.click().then(() => el)
     })
   }
 
   touchStart() {
+    this.assertReady()
     return this.chain((el: ElementHandleExt) => {
       return el.dispatchEvent('touchstart').then(() => el)
     })
   }
 
   elementsByCss(sel) {
+    this.assertReady()
     return this.chain(() =>
       page.$$(sel).then((els) => {
         return els.map((el) => {
@@ -446,6 +527,7 @@ export class Playwright extends BrowserInterface {
   }
 
   waitForElementByCss(selector, timeout?: number) {
+    this.assertReady()
     return this.chain(() => {
       return page
         .waitForSelector(selector, { timeout, state: 'attached' })
@@ -459,12 +541,14 @@ export class Playwright extends BrowserInterface {
   }
 
   waitForCondition(condition, timeout) {
+    this.assertReady()
     return this.chain(() => {
       return page.waitForFunction(condition, { timeout })
     })
   }
 
   eval<T = any>(fn: any, ...args: any[]): Promise<T> {
+    this.assertReady()
     return this.chain(() =>
       page
         .evaluate(fn, ...args)
@@ -480,6 +564,7 @@ export class Playwright extends BrowserInterface {
   }
 
   async evalAsync<T = any>(fn: any) {
+    this.assertReady()
     if (typeof fn === 'function') {
       fn = fn.toString()
     }
@@ -507,6 +592,7 @@ export class Playwright extends BrowserInterface {
       ? { source: string; message: string; args: unknown[] }[]
       : { source: string; message: string }[]
   > {
+    this.assertReady()
     return this.chain(
       () =>
         options?.includeArgs
@@ -523,26 +609,42 @@ export class Playwright extends BrowserInterface {
   }
 
   async websocketFrames() {
+    this.assertReady()
     return this.chain(() => websocketFrames)
   }
 
   async url() {
+    this.assertReady()
     return this.chain(() => page.url())
   }
 
   async waitForIdleNetwork(): Promise<void> {
+    this.assertReady()
     return this.chain(() => {
       return page.waitForLoadState('networkidle')
     })
   }
 
   locateRedbox(): Locator {
+    this.assertReady()
     return page.locator(
       'nextjs-portal [aria-labelledby="nextjs__container_errors_label"]'
     )
   }
 
   locateDevToolsIndicator(): Locator {
+    this.assertReady()
     return page.locator('nextjs-portal [data-nextjs-dev-tools-button]')
+  }
+}
+
+let currentId = 0
+const trace = async <T>(description: string, cb: () => Promise<T>) => {
+  const id = currentId++
+  console.log(`[${id}] start:`, description)
+  try {
+    return await cb()
+  } finally {
+    console.log(`[${id}] end:  `, description)
   }
 }
