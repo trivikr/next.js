@@ -293,72 +293,91 @@ export class Playwright extends BrowserInterface {
     await this.cleanupPages()
 
     await this.initContextTracing(url, context)
-    page = await context.newPage()
 
-    page.setDefaultTimeout(defaultTimeout)
-    page.setDefaultNavigationTimeout(defaultTimeout)
+    // deliberately use local references so that the callbacks below always refer to the same objects,
+    // even after the module-level globals are modified.
+    const setupPage = async (
+      page: typeof newPage,
+      pageLogs: typeof newPageLogs,
+      websocketFrames: typeof newWebSocketFrames
+    ) => {
+      page.setDefaultTimeout(defaultTimeout)
+      page.setDefaultNavigationTimeout(defaultTimeout)
 
-    pageLogs = []
-    websocketFrames = []
+      // use a local reference so that the callbacks below always refer to the same object.
 
-    page.on('console', (msg) => {
-      console.log('browser log:', msg)
-
-      pageLogs.push(
-        Promise.all(
-          msg.args().map((handle) => handle.jsonValue().catch(() => {}))
-        ).then((args) => ({ source: msg.type(), message: msg.text(), args }))
-      )
-    })
-    page.on('crash', () => {
-      console.error('page crashed')
-    })
-    page.on('pageerror', (error) => {
-      console.error('page error', error)
-
-      if (opts?.pushErrorAsConsoleLog) {
-        pageLogs.push({ source: 'error', message: error.message, args: [] })
-      }
-    })
-
-    if (opts?.disableCache) {
-      // TODO: this doesn't seem to work (dev tools does not check the box as expected)
-      const session = await context.newCDPSession(page)
-      session.send('Network.setCacheDisabled', { cacheDisabled: true })
-    }
-
-    if (opts?.cpuThrottleRate) {
-      const session = await context.newCDPSession(page)
-      // https://chromedevtools.github.io/devtools-protocol/tot/Emulation/#method-setCPUThrottlingRate
-      session.send('Emulation.setCPUThrottlingRate', {
-        rate: opts.cpuThrottleRate,
-      })
-    }
-
-    page.on('websocket', (ws) => {
-      if (tracePlaywright) {
-        page
-          .evaluate(`console.log('connected to ws at ${ws.url()}')`)
-          .catch(() => {})
-
-        ws.on('close', () =>
-          page
-            .evaluate(`console.log('closed websocket ${ws.url()}')`)
-            .catch(() => {})
+      page.on('console', (msg) => {
+        console.log('browser log:', msg)
+        pageLogs.push(
+          Promise.all(
+            msg.args().map((handle) => handle.jsonValue().catch(() => {}))
+          ).then((args) => ({ source: msg.type(), message: msg.text(), args }))
         )
-      }
-      ws.on('framereceived', (frame) => {
-        websocketFrames.push({ payload: frame.payload })
+      })
+      page.on('crash', () => {
+        console.error('page crashed')
+      })
+      page.on('pageerror', (error) => {
+        console.error('page error', error)
 
-        if (tracePlaywright) {
-          page
-            .evaluate(`console.log('received ws message ${frame.payload}')`)
-            .catch(() => {})
+        if (opts?.pushErrorAsConsoleLog) {
+          pageLogs.push({
+            source: 'error',
+            message: error.message,
+            args: [],
+          })
         }
       })
-    })
 
-    opts?.beforePageLoad?.(page)
+      if (opts?.disableCache) {
+        // TODO: this doesn't seem to work (dev tools does not check the box as expected)
+        const session = await context.newCDPSession(page)
+        session.send('Network.setCacheDisabled', { cacheDisabled: true })
+      }
+
+      if (opts?.cpuThrottleRate) {
+        const session = await context.newCDPSession(page)
+        // https://chromedevtools.github.io/devtools-protocol/tot/Emulation/#method-setCPUThrottlingRate
+        session.send('Emulation.setCPUThrottlingRate', {
+          rate: opts.cpuThrottleRate,
+        })
+      }
+
+      page.on('websocket', (ws) => {
+        if (tracePlaywright) {
+          page
+            .evaluate(`console.log('connected to ws at ${ws.url()}')`)
+            .catch(() => {})
+
+          ws.on('close', () =>
+            page
+              .evaluate(`console.log('closed websocket ${ws.url()}')`)
+              .catch(() => {})
+          )
+        }
+        ws.on('framereceived', (frame) => {
+          websocketFrames.push({ payload: frame.payload })
+
+          if (tracePlaywright) {
+            page
+              .evaluate(`console.log('received ws message ${frame.payload}')`)
+              .catch(() => {})
+          }
+        })
+      })
+
+      opts?.beforePageLoad?.(page)
+    }
+
+    const newPage = await context.newPage()
+    const newPageLogs: typeof pageLogs = []
+    const newWebSocketFrames: typeof websocketFrames = []
+
+    await setupPage(newPage, newPageLogs, newWebSocketFrames)
+
+    page = newPage
+    pageLogs = newPageLogs
+    websocketFrames = newWebSocketFrames
 
     await page.goto(url, { waitUntil: 'load' })
   }
