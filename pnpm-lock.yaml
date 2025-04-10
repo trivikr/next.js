@@ -1033,8 +1033,8 @@ importers:
         specifier: 1.6.0
         version: 1.6.0
       '@playwright/test':
-        specifier: 1.41.2
-        version: 1.41.2
+        specifier: 1.51.1
+        version: 1.51.1
       '@storybook/addon-a11y':
         specifier: 8.6.0
         version: 8.6.0(storybook@8.6.0(prettier@3.3.3))
@@ -5216,10 +5216,9 @@ packages:
     resolution: {integrity: sha512-cq8o4cWH0ibXh9VGi5P20Tu9XF/0fFXl9EUinr9QfTM7a7p0oTA4iJRCQWppXR1Pg8dSM0UCItCkPwsk9qWWYA==}
     engines: {node: ^12.20.0 || ^14.18.0 || >=16.0.0}
 
-  '@playwright/test@1.41.2':
-    resolution: {integrity: sha512-qQB9h7KbibJzrDpkXkYvsmiDJK14FULCCZgEcoe2AvFAS64oCirWTwzTlAYEbKaRxWs5TFesE1Na6izMv3HfGg==}
-    engines: {node: '>=16'}
-    deprecated: Please update to the latest version of Playwright to test up-to-date browsers.
+  '@playwright/test@1.51.1':
+    resolution: {integrity: sha512-nM+kEaTSAoVlXmMPH10017vn3FSiFqr/bh4fKg9vmAdMfd9SDqRZNvPSiAHADc/itWak+qPvMPZQOPwCBW7k7Q==}
+    engines: {node: '>=18'}
     hasBin: true
 
   '@polka/url@1.0.0-next.11':
@@ -13542,11 +13541,6 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  playwright-core@1.41.2:
-    resolution: {integrity: sha512-VaTvwCA4Y8kxEe+kfm2+uUUw5Lubf38RxF7FpBxLPmGe5sdNkSg5e3ChEigaGrX7qdqT3pt2m/98LiyvU2x6CA==}
-    engines: {node: '>=16'}
-    hasBin: true
-
   playwright-core@1.48.0:
     resolution: {integrity: sha512-RBvzjM9rdpP7UUFrQzRwR8L/xR4HyC1QXMzGYTbf1vjw25/ya9NRAVnXi/0fvFopjebvyPzsmoK58xxeEOaVvA==}
     engines: {node: '>=18'}
@@ -13555,11 +13549,6 @@ packages:
   playwright-core@1.51.1:
     resolution: {integrity: sha512-/crRMj8+j/Nq5s8QcvegseuyeZPxpQCZb6HNk3Sos3BlZyAknRjoyJPFWkpNn8v0+P3WiwqFF8P+zQo4eqiNuw==}
     engines: {node: '>=18'}
-    hasBin: true
-
-  playwright@1.41.2:
-    resolution: {integrity: sha512-v0bOa6H2GJChDL8pAeLa/LZC4feoAMbSQm1/jF/ySsWWoaNItvrMP7GEkvEEFyCTUYKMxjQKaTSg5up7nR6/8A==}
-    engines: {node: '>=16'}
     hasBin: true
 
   playwright@1.48.0:
@@ -21724,9 +21713,9 @@ snapshots:
 
   '@pkgr/core@0.1.1': {}
 
-  '@playwright/test@1.41.2':
+  '@playwright/test@1.51.1':
     dependencies:
-      playwright: 1.41.2
+      playwright: 1.51.1
 
   '@polka/url@1.0.0-next.11': {}
 
@@ -32406,17 +32395,9 @@ snapshots:
     dependencies:
       playwright-core: 1.51.1
 
-  playwright-core@1.41.2: {}
-
   playwright-core@1.48.0: {}
 
   playwright-core@1.51.1: {}
-
-  playwright@1.41.2:
-    dependencies:
-      playwright-core: 1.41.2
-    optionalDependencies:
-      fsevents: 2.3.2
 
   playwright@1.48.0:
     dependencies:
