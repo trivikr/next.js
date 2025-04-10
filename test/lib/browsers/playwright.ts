@@ -296,10 +296,13 @@ export class Playwright extends BrowserInterface {
       beforePageLoad?: (...args: any[]) => void
     }
   ) {
+    if (this.state === 'ready') {
+      // we call this between tests, so it shouldn't be necessary,
+      // but a single test can call loadPage() twice, so we still need to do it here.
+      await this.cleanupPages()
+    }
+
     this.state = 'loading'
-    // we call this between test, so it shouldn't be necessary,
-    // but a single test can call loadPage() twice, so we still need to do it here.
-    await this.cleanupPages()
 
     await this.initContextTracing(url, context)
 
