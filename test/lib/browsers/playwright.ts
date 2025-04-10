@@ -57,7 +57,15 @@ interface ElementHandleExt extends ElementHandle {
 }
 
 export class Playwright extends BrowserInterface {
-  state: 'uninitialized' | 'ready' | 'closing' | 'closed'
+  state:
+    | 'uninitialized'
+    | 'setting-up'
+    | 'set-up'
+    | 'loading'
+    | 'ready'
+    | 'closing'
+    | 'closed'
+
   private activeTrace?: string
   private async initContextTracing(url: string, context: BrowserContext) {
     if (!tracePlaywright) {
@@ -139,7 +147,7 @@ export class Playwright extends BrowserInterface {
       throw new Error('Cannot set up Playwright while closing')
     }
 
-    this.state = 'ready' // not really, but close enough
+    this.state = 'setting-up'
     let device
 
     if (process.env.DEVICE_NAME) {
@@ -150,12 +158,6 @@ export class Playwright extends BrowserInterface {
           `Invalid playwright device name ${process.env.DEVICE_NAME}`
         )
       }
-    }
-
-    if (browser) {
-      console.warn(
-        'Calling next.browser() multiple times in a single test is not recommended.'
-      )
     }
 
     if (context) {
@@ -199,10 +201,16 @@ export class Playwright extends BrowserInterface {
       ...device,
     })
     contextHasJSEnabled = javaScriptEnabled
+    this.state = 'set-up'
   }
 
   async close(): Promise<void> {
-    if (this.state === 'uninitialized') {
+    if (
+      this.state === 'uninitialized' ||
+      this.state === 'setting-up' ||
+      this.state === 'set-up' ||
+      this.state === 'loading'
+    ) {
       // Somehow, we got closed before we were initialized.
       return
     }
@@ -288,6 +296,7 @@ export class Playwright extends BrowserInterface {
       beforePageLoad?: (...args: any[]) => void
     }
   ) {
+    this.state = 'loading'
     // we call this between test, so it shouldn't be necessary,
     // but a single test can call loadPage() twice, so we still need to do it here.
     await this.cleanupPages()
@@ -374,10 +383,10 @@ export class Playwright extends BrowserInterface {
     const newWebSocketFrames: typeof websocketFrames = []
 
     await setupPage(newPage, newPageLogs, newWebSocketFrames)
-
     page = newPage
     pageLogs = newPageLogs
     websocketFrames = newWebSocketFrames
+    this.state = 'ready'
 
     await page.goto(url, { waitUntil: 'load' })
   }
