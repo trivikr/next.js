@@ -10,6 +10,7 @@ import {
   ElementHandle,
   devices,
   Locator,
+  errors as PlaywrightErrors,
 } from 'playwright'
 import path from 'path'
 
@@ -427,16 +428,36 @@ export class Playwright extends BrowserInterface {
     )
   }
 
-  waitForElementByCss(selector, timeout = 10_000) {
-    return this.chain(() => {
-      return page
+  waitForElementByCss(selector: string, timeout = 10_000) {
+    return this.chain(async () => {
+      const el = await page
         .waitForSelector(selector, { timeout, state: 'attached' })
-        .then(async (el) => {
-          // it seems selenium waits longer and tests rely on this behavior
-          // so we wait for the load event fire before returning
-          await page.waitForLoadState()
-          return this.wrapElement(el, selector)
+        .catch((err) => {
+          if (err instanceof PlaywrightErrors.TimeoutError) {
+            // The default error message from playwright doesn't tell us which selector we were waiting for.
+            throw new Error(
+              `Playwright.waitForElementByCss: Timeout ${timeout}ms exceeded while waiting for '${selector}'`
+            )
+          } else {
+            throw err
+          }
         })
+
+      // it seems selenium waits longer and tests rely on this behavior
+      // so we wait for the load event fire before returning
+      const targetLoadState: Parameters<Page['waitForLoadState']>[0] = 'load'
+      await page.waitForLoadState(targetLoadState, { timeout }).catch((err) => {
+        if (err instanceof PlaywrightErrors.TimeoutError) {
+          // The default error message from playwright doesn't tell us which selector we were waiting for.
+          throw new Error(
+            `Playwright.waitForElementByCss: Timeout ${timeout}ms exceeded while waiting for the '${targetLoadState}' event after finding '${selector}'`
+          )
+        } else {
+          throw err
+        }
+      })
+
+      return this.wrapElement(el, selector)
     })
   }
 
